@@ -11,7 +11,7 @@ const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
 const RSS_URL =
-  "https://www.youtube.com/feeds/videos.xml?channel_id=@yrh-lab";
+  "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
 
 let lastVideo = "";
 
