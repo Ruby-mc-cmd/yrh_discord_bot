@@ -47,14 +47,17 @@ async function checkYoutube() {
       const channel = await client.channels.fetch(CHANNEL_ID);
 
       await channel.send({
+        content: video.link,
         embeds: [
           {
             title: video.title,
             url: video.link,
-            description: "📺 新しい動画が投稿されました！",
-            image: {
+            description:
+              `📺 新しい動画が投稿されました！\n${video.link}`,
+            thumbnail: {
               url: video.enclosure?.url || null
-            }
+            },
+            color: 0xff0000
           }
         ]
       });
