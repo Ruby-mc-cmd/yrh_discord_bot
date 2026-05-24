@@ -1,0 +1,10 @@
+{
+  "name": "yrh_bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "rss-parser": "^3.13.0"
+  }
+}
