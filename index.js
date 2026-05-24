@@ -13,29 +13,56 @@ const CHANNEL_ID = process.env.CHANNEL_ID;
 const RSS_URL =
   "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
 
-let lastVideo = "";
+let lastVideo = null;
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
+  // 起動時に即チェック
+  checkYoutube();
+
+  // 1分ごとに確認
   setInterval(checkYoutube, 60000);
 });
 
 async function checkYoutube() {
-  const feed = await parser.parseURL(RSS_URL);
+  try {
+    const feed = await parser.parseURL(RSS_URL);
 
-  const video = feed.items[0];
+    const video = feed.items[0];
 
-  if (!video) return;
+    if (!video) return;
 
-  if (video.link !== lastVideo) {
-    lastVideo = video.link;
+    // 初回起動時は保存だけ
+    if (lastVideo === null) {
+      lastVideo = video.link;
+      console.log("初回動画保存:", video.title);
+      return;
+    }
 
-    const channel = await client.channels.fetch(CHANNEL_ID);
+    // 新動画チェック
+    if (video.link !== lastVideo) {
+      lastVideo = video.link;
 
-    channel.send(
-      `📺 新しい動画！\n**${video.title}**\n${video.link}`
-    );
+      const channel = await client.channels.fetch(CHANNEL_ID);
+
+      await channel.send({
+        embeds: [
+          {
+            title: video.title,
+            url: video.link,
+            description: "📺 新しい動画が投稿されました！",
+            image: {
+              url: video.enclosure?.url || null
+            }
+          }
+        ]
+      });
+
+      console.log("新動画通知:", video.title);
+    }
+  } catch (err) {
+    console.error("RSS取得エラー:", err);
   }
 }
 
