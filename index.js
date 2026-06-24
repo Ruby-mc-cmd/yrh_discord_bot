@@ -128,11 +128,13 @@ async function fetchLatestSnapshot() {
   const snap = json.versions.find(v => v.type === "snapshot");
   if (!snap) return null;
 
-  const articleSlug = `minecraft-java-edition-${snap.id.toLowerCase().replace(/ /g, "-")}`;
+  // "26.2-snapshot-7" → "minecraft-26-2-snapshot-7"
+  const articleSlug = snap.id.toLowerCase().replace(/\./g, "-");
+
   return {
     id: snap.id,
     releaseTime: snap.releaseTime,
-    url: `${MC_ARTICLE_BASE}${articleSlug}`,
+    url: `${MC_ARTICLE_BASE}minecraft-${articleSlug}`,
     type: detectType(snap.id)
   };
 }
