@@ -18,7 +18,7 @@ const CHANNEL_ID = process.env.CHANNEL_ID;
 const YOUTUBE_RSS_URL =
 "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
 
-// Minecraft News RSS
+// Minecraft RSS
 const MC_RSS_URL =
 "https://www.minecraft.net/content/minecraft-net/_jcr_content.articles.feed";
 
@@ -33,7 +33,6 @@ let latestMinecraftPost = null;
 client.once("ready", async () => {
 console.log("Logged in as ${client.user.tag}");
 
-// 初回取得
 await checkYoutube();
 await checkMinecraft();
 
@@ -49,6 +48,7 @@ if (message.author.bot) return;
 
 const content = message.content.trim();
 
+// 最新YouTube動画を送信
 if (content === "!load") {
 if (!latestVideo) {
 await message.reply("動画データがまだありません");
@@ -57,17 +57,34 @@ return;
 
 await sendVideo(latestVideo);
 await message.reply("最新動画を送信しました");
-
-}
-
-if (content === "!snapshot") {
-if (!latestMinecraftPost) {
-await message.reply("Minecraft記事データがまだありません");
 return;
+
 }
 
-await sendMinecraftPost(latestMinecraftPost);
-await message.reply("最新Minecraft記事を送信しました");
+// 最新Minecraft記事を取得して送信
+if (content === "!snapshot") {
+try {
+const feed = await parser.parseURL(MC_RSS_URL);
+
+  const post = feed.items.find(item =>
+    /snapshot|pre-release|preview/i.test(item.title)
+  );
+
+  if (!post) {
+    await message.reply(
+      "Snapshot / Pre-release / Preview が見つかりませんでした"
+    );
+    return;
+  }
+
+  await sendMinecraftPost(post);
+  await message.reply("最新Minecraft記事を送信しました");
+} catch (err) {
+  console.error(err);
+  await message.reply("Minecraft記事の取得に失敗しました");
+}
+
+return;
 
 }
 });
