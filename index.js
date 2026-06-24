@@ -1,185 +1,172 @@
 import { Client, GatewayIntentBits } from "discord.js";
-import Parser from "rss-parser";
 
 const client = new Client({
-intents: [
-GatewayIntentBits.Guilds,
-GatewayIntentBits.GuildMessages,
-GatewayIntentBits.MessageContent
-]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
-
-const parser = new Parser();
 
 const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
-
-// YouTube RSS
-const YOUTUBE_RSS_URL =
-"https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
-
-// Minecraft RSS
-const MC_RSS_URL =
-"https://www.minecraft.net/content/minecraft-net/_jcr_content.articles.feed";
-
 const MC_CHANNEL_ID = "1519156682209497209";
 
-let lastVideo = null;
-let latestVideo = null;
+const YOUTUBE_RSS_URL =
+  "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
 
-let lastMinecraftPost = null;
-let latestMinecraftPost = null;
+const MC_VERSION_API =
+  "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+const MC_ARTICLE_BASE = "https://www.minecraft.net/en-us/article/";
+
+let lastVideoLink = null;
+let latestVideo = null;
+let lastSnapshotId = null;
+let latestSnapshot = null;
 
 client.once("ready", async () => {
-console.log("Logged in as ${client.user.tag}");
-
-await checkYoutube();
-await checkMinecraft();
-
-// YouTube: 1分ごと
-setInterval(checkYoutube, 60 * 1000);
-
-// Minecraft: 5分ごと
-setInterval(checkMinecraft, 5 * 60 * 1000);
+  console.log(`Logged in as ${client.user.tag}`);
+  await checkYoutube();
+  await checkMinecraft();
+  setInterval(checkYoutube, 60 * 1000);
+  setInterval(checkMinecraft, 5 * 60 * 1000);
 });
 
 client.on("messageCreate", async (message) => {
-if (message.author.bot) return;
+  if (message.author.bot) return;
+  const content = message.content.trim();
 
-const content = message.content.trim();
-
-// 最新YouTube動画を送信
-if (content === "!load") {
-if (!latestVideo) {
-await message.reply("動画データがまだありません");
-return;
-}
-
-await sendVideo(latestVideo);
-await message.reply("最新動画を送信しました");
-return;
-
-}
-
-// 最新Minecraft記事を取得して送信
-if (content === "!snapshot") {
-try {
-const feed = await parser.parseURL(MC_RSS_URL);
-
-  const post = feed.items.find(item =>
-    /snapshot|pre-release|preview/i.test(item.title)
-  );
-
-  if (!post) {
-    await message.reply(
-      "Snapshot / Pre-release / Preview が見つかりませんでした"
-    );
+  if (content === "!load") {
+    if (!latestVideo) {
+      await message.reply("動画データがまだありません");
+      return;
+    }
+    await sendVideo(latestVideo);
+    await message.reply("最新動画を送信しました");
     return;
   }
 
-  await sendMinecraftPost(post);
-  await message.reply("最新Minecraft記事を送信しました");
-} catch (err) {
-  console.error(err);
-  await message.reply("Minecraft記事の取得に失敗しました");
-}
-
-return;
-
-}
+  if (content === "!snapshot") {
+    try {
+      const snap = await fetchLatestSnapshot();
+      if (!snap) {
+        await message.reply("Snapshot / Pre-release / Preview が見つかりませんでした");
+        return;
+      }
+      await sendMinecraftPost(snap);
+      await message.reply("最新Minecraft記事を送信しました");
+    } catch (err) {
+      console.error("!snapshot エラー:", err);
+      await message.reply(`Minecraft情報の取得に失敗しました\nエラー: ${err.message}`);
+    }
+    return;
+  }
 });
 
 async function checkYoutube() {
-try {
-const feed = await parser.parseURL(YOUTUBE_RSS_URL);
-const video = feed.items[0];
+  try {
+    const res = await fetch(YOUTUBE_RSS_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
 
-if (!video) return;
+    const titleMatch = text.match(/<entry>[\s\S]*?<title>([\s\S]*?)<\/title>/);
+    const linkMatch = text.match(/<link rel="alternate"[^>]*href="([^"]+)"/);
+    if (!titleMatch || !linkMatch) return;
 
-latestVideo = video;
+    const video = {
+      title: titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim(),
+      link: linkMatch[1]
+    };
 
-if (lastVideo === null) {
-  lastVideo = video.link;
-  console.log("初回動画保存:", video.title);
-  return;
-}
+    latestVideo = video;
 
-if (video.link !== lastVideo) {
-  lastVideo = video.link;
+    if (lastVideoLink === null) {
+      lastVideoLink = video.link;
+      console.log("初回動画保存:", video.title);
+      return;
+    }
 
-  await sendVideo(video);
-
-  console.log("新動画通知:", video.title);
-}
-
-} catch (err) {
-console.error("YouTube RSS取得エラー:", err);
-}
+    if (video.link !== lastVideoLink) {
+      lastVideoLink = video.link;
+      await sendVideo(video);
+      console.log("新動画通知:", video.title);
+    }
+  } catch (err) {
+    console.error("YouTube RSS取得エラー:", err.message);
+  }
 }
 
 async function checkMinecraft() {
-try {
-const feed = await parser.parseURL(MC_RSS_URL);
+  try {
+    const snap = await fetchLatestSnapshot();
+    if (!snap) return;
 
-const post = feed.items.find(item =>
-  /snapshot|pre-release|preview/i.test(item.title)
-);
+    latestSnapshot = snap;
 
-if (!post) return;
+    if (lastSnapshotId === null) {
+      lastSnapshotId = snap.id;
+      console.log("初回Minecraft保存:", snap.id);
+      return;
+    }
 
-latestMinecraftPost = post;
-
-if (lastMinecraftPost === null) {
-  lastMinecraftPost = post.link;
-  console.log("初回Minecraft記事保存:", post.title);
-  return;
+    if (snap.id !== lastSnapshotId) {
+      lastSnapshotId = snap.id;
+      await sendMinecraftPost(snap);
+      console.log("新Minecraft通知:", snap.id);
+    }
+  } catch (err) {
+    console.error("Minecraft API取得エラー:", err.message);
+  }
 }
 
-if (post.link !== lastMinecraftPost) {
-  lastMinecraftPost = post.link;
+async function fetchLatestSnapshot() {
+  const res = await fetch(MC_VERSION_API);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
 
-  await sendMinecraftPost(post);
+  const snap = json.versions.find(v => v.type === "snapshot");
+  if (!snap) return null;
 
-  console.log("新Minecraft記事通知:", post.title);
+  const articleSlug = `minecraft-java-edition-${snap.id.toLowerCase().replace(/ /g, "-")}`;
+  return {
+    id: snap.id,
+    releaseTime: snap.releaseTime,
+    url: `${MC_ARTICLE_BASE}${articleSlug}`,
+    type: detectType(snap.id)
+  };
 }
 
-} catch (err) {
-console.error("Minecraft RSS取得エラー:", err);
-}
+// ✅ preview を pre より先にチェック（バグ修正）
+function detectType(id) {
+  const lower = id.toLowerCase();
+  if (lower.includes("preview")) return "Preview";
+  if (lower.includes("pre")) return "Pre-release";
+  if (lower.includes("rc")) return "Release Candidate";
+  return "Snapshot";
 }
 
 async function sendVideo(video) {
-const channel = await client.channels.fetch(CHANNEL_ID);
-
-if (!channel?.isTextBased()) return;
-
-await channel.send(
-"📺 新しい動画が投稿されました！\n" +
-"**${video.title}**\n" +
-"${video.link}"
-);
+  const channel = await client.channels.fetch(CHANNEL_ID);
+  if (!channel?.isTextBased()) return;
+  await channel.send(
+    `📺 新しい動画が投稿されました！\n**${video.title}**\n${video.link}`
+  );
 }
 
-async function sendMinecraftPost(post) {
-const channel = await client.channels.fetch(MC_CHANNEL_ID);
+async function sendMinecraftPost(snap) {
+  const channel = await client.channels.fetch(MC_CHANNEL_ID);
+  if (!channel?.isTextBased()) return;
 
-if (!channel?.isTextBased()) return;
+  const released = new Date(snap.releaseTime).toLocaleDateString("ja-JP", {
+    year: "numeric", month: "long", day: "numeric"
+  });
 
-let type = "Minecraft News";
-
-if (/snapshot/i.test(post.title)) {
-type = "Snapshot";
-} else if (/pre-release/i.test(post.title)) {
-type = "Pre-release";
-} else if (/preview/i.test(post.title)) {
-type = "Preview";
+  await channel.send(
+    `🧪 新しいMinecraft **${snap.type}** が公開されました！\n` +
+    `**${snap.id}** (${released})\n` +
+    `${snap.url}`
+  );
 }
 
-await channel.send(
-"🧪 新しいMinecraft ${type} が公開されました！\n" +
-"**${post.title}**\n" +
-"${post.link}"
-);
-}
-
-client.login(TOKEN);
+client.login(TOKEN); 
