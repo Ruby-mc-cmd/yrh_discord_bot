@@ -47,7 +47,7 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  if (content === "!snapshot") {
+  if (content === "!snap" || content === "!snapshot") {
     try {
       const snap = await fetchLatestSnapshot();
       if (!snap) {
@@ -58,7 +58,7 @@ client.on("messageCreate", async (message) => {
       await message.reply("最新Minecraft記事を送信しました");
     } catch (err) {
       console.error("!snapshot エラー:", err);
-      await message.reply(`Minecraft情報の取得に失敗しました\nエラー: ${err.message}`);
+      await message.reply(`Minecraft情報の取得に失敗しました\nエラー: \`${err.message}\``);
     }
     return;
   }
@@ -137,7 +137,6 @@ async function fetchLatestSnapshot() {
   };
 }
 
-// ✅ preview を pre より先にチェック（バグ修正）
 function detectType(id) {
   const lower = id.toLowerCase();
   if (lower.includes("preview")) return "Preview";
@@ -169,4 +168,4 @@ async function sendMinecraftPost(snap) {
   );
 }
 
-client.login(TOKEN); 
+client.login(TOKEN);
