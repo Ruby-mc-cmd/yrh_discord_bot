@@ -30,14 +30,14 @@ client.once("ready", async () => {
   await checkYoutube();
   await checkMinecraft();
   setInterval(checkYoutube, 60 * 1000);
-  setInterval(checkMinecraft, 5 * 60 * 1000);
+  setInterval(checkMinecraft, 60 * 1000);
 });
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   const content = message.content.trim();
 
-  if (content === "!load") {
+  if (content === "!video") {
     if (!latestVideo) {
       await message.reply("動画データがまだありません");
       return;
@@ -70,8 +70,12 @@ async function checkYoutube() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
 
-    const titleMatch = text.match(/<entry>[\s\S]*?<title>([\s\S]*?)<\/title>/);
-    const linkMatch = text.match(/<link rel="alternate"[^>]*href="([^"]+)"/);
+    const entryMatch = text.match(/<entry>([\s\S]*?)<\/entry>/);
+    if (!entryMatch) return;
+
+    const entry = entryMatch[1];
+    const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/);
+    const linkMatch = entry.match(/<link rel="alternate"[^>]*href="([^"]+)"/);
     if (!titleMatch || !linkMatch) return;
 
     const video = {
@@ -128,7 +132,6 @@ async function fetchLatestSnapshot() {
   const snap = json.versions.find(v => v.type === "snapshot");
   if (!snap) return null;
 
-  // "26.2-snapshot-7" → "minecraft-26-2-snapshot-7"
   const articleSlug = snap.id.toLowerCase().replace(/\./g, "-");
 
   return {
