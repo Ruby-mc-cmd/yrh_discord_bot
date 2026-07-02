@@ -244,12 +244,20 @@ async function fetchOgImage(url) {
     const res = await fetch(url);
     if (!res.ok) return null;
     const html = await res.text();
-    const match = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/);
-    if (!match) {
-      const match2 = html.match(/<meta[^>]*content="([^"]+)"[^>]*property="og:image"/);
-      return match2 ? match2[1] : null;
-    }
-    return match[1];
+
+    // property="og:image" パターン
+    const match1 = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/);
+    if (match1) return match1[1];
+
+    // content が先に来るパターン
+    const match2 = html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/);
+    if (match2) return match2[1];
+
+    // name="og:image" パターン
+    const match3 = html.match(/<meta[^>]*name=["']og:image["'][^>]*content=["']([^"']+)["']/);
+    if (match3) return match3[1];
+
+    return null;
   } catch {
     return null;
   }
