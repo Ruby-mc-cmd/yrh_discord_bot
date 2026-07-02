@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, MessageFlags } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, Partials } from "discord.js";
 
 const client = new Client({
   intents: [
@@ -7,12 +7,14 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildMembers
-  ]
+  ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
 const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const MC_CHANNEL_ID = "1519156682209497209";
+const PANEL_CHANNEL_ID = "1522069540308123780";
 
 const YOUTUBE_RSS_URL =
   "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
@@ -24,8 +26,6 @@ const ROLE_REACTIONS = {
   "❤️": "1522070132183269467",
   "🔔": "1522070352841277620"
 };
-
-let panelMessageId = null;
 
 let lastVideoLink = null;
 let latestVideo = null;
@@ -67,7 +67,6 @@ client.on("messageCreate", async (message) => {
       .setFooter({ text: "リアクションはいつでも変更できます" });
 
     const panel = await message.channel.send({ embeds: [embed] });
-    panelMessageId = panel.id;
 
     for (const emoji of Object.keys(ROLE_REACTIONS)) {
       await panel.react(emoji);
@@ -107,7 +106,11 @@ client.on("messageCreate", async (message) => {
 // ========== リアクション追加 ==========
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
-  if (reaction.message.id !== panelMessageId) return;
+  if (reaction.message.channelId !== PANEL_CHANNEL_ID) return;
+
+  if (reaction.partial) {
+    try { await reaction.fetch(); } catch { return; }
+  }
 
   const emoji = reaction.emoji.name;
   const roleId = ROLE_REACTIONS[emoji];
@@ -116,14 +119,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
   try {
     const guild = reaction.message.guild;
     const member = await guild.members.fetch(user.id);
-    const role = guild.roles.cache.get(roleId);
     await member.roles.add(roleId);
-
-    await reaction.message.channel.send({
-      content: `✅ <@${user.id}> **${emoji} ${role?.name ?? roleId}** を付与しました！`,
-      flags: MessageFlags.Ephemeral
-    }).then(msg => setTimeout(() => msg.delete().catch(() => {}), 5000));
-
     console.log(`ロール付与: ${user.tag} → ${emoji} (${roleId})`);
   } catch (err) {
     console.error("ロール付与エラー:", err.message);
@@ -133,7 +129,11 @@ client.on("messageReactionAdd", async (reaction, user) => {
 // ========== リアクション削除 ==========
 client.on("messageReactionRemove", async (reaction, user) => {
   if (user.bot) return;
-  if (reaction.message.id !== panelMessageId) return;
+  if (reaction.message.channelId !== PANEL_CHANNEL_ID) return;
+
+  if (reaction.partial) {
+    try { await reaction.fetch(); } catch { return; }
+  }
 
   const emoji = reaction.emoji.name;
   const roleId = ROLE_REACTIONS[emoji];
@@ -142,14 +142,7 @@ client.on("messageReactionRemove", async (reaction, user) => {
   try {
     const guild = reaction.message.guild;
     const member = await guild.members.fetch(user.id);
-    const role = guild.roles.cache.get(roleId);
     await member.roles.remove(roleId);
-
-    await reaction.message.channel.send({
-      content: `🗑️ <@${user.id}> **${emoji} ${role?.name ?? roleId}** を外しました`,
-      flags: MessageFlags.Ephemeral
-    }).then(msg => setTimeout(() => msg.delete().catch(() => {}), 5000));
-
     console.log(`ロール削除: ${user.tag} → ${emoji} (${roleId})`);
   } catch (err) {
     console.error("ロール削除エラー:", err.message);
@@ -228,39 +221,17 @@ async function fetchLatestSnapshot() {
 
   const articleSlug = snap.id.toLowerCase().replace(/\./g, "-");
   const url = `${MC_ARTICLE_BASE}minecraft-${articleSlug}`;
-  const ogImage = await fetchOgImage(url);
+
+  const year = new Date(snap.releaseTime).getFullYear();
+  const image = `https://www.minecraft.net/content/dam/minecraftnet/article-asset/${year}/minecraft-${articleSlug}/new-article-hero-image.jpg`;
 
   return {
     id: snap.id,
     releaseTime: snap.releaseTime,
     url,
     type: detectType(snap.id),
-    image: ogImage
+    image
   };
-}
-
-async function fetchOgImage(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    // property="og:image" パターン
-    const match1 = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/);
-    if (match1) return match1[1];
-
-    // content が先に来るパターン
-    const match2 = html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/);
-    if (match2) return match2[1];
-
-    // name="og:image" パターン
-    const match3 = html.match(/<meta[^>]*name=["']og:image["'][^>]*content=["']([^"']+)["']/);
-    if (match3) return match3[1];
-
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 function detectType(id) {
