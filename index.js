@@ -1,10 +1,12 @@
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, MessageFlags } from "discord.js";
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -14,11 +16,16 @@ const MC_CHANNEL_ID = "1519156682209497209";
 
 const YOUTUBE_RSS_URL =
   "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
-
 const MC_VERSION_API =
   "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-
 const MC_ARTICLE_BASE = "https://www.minecraft.net/en-us/article/";
+
+const ROLE_REACTIONS = {
+  "❤️": "1522070132183269467",
+  "🔔": "1522070352841277620"
+};
+
+let panelMessageId = null;
 
 let lastVideoLink = null;
 let latestVideo = null;
@@ -33,9 +40,42 @@ client.once("ready", async () => {
   setInterval(checkMinecraft, 60 * 1000);
 });
 
+// ========== コマンド ==========
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   const content = message.content.trim();
+
+  if (content === "!panel") {
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      await message.reply("このコマンドは管理者のみ使用できます");
+      return;
+    }
+
+    const guild = message.guild;
+    const role1 = guild.roles.cache.get("1522070132183269467");
+    const role2 = guild.roles.cache.get("1522070352841277620");
+
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle("🎭 ロール取得パネル")
+      .setDescription(
+        "下のリアクションを押すと対応したロールが付与されます。\n" +
+        "もう一度押すとロールが外れます。\n\n" +
+        `❤️ → **${role1?.name ?? "不明なロール"}**\n` +
+        `🔔 → **${role2?.name ?? "不明なロール"}**`
+      )
+      .setFooter({ text: "リアクションはいつでも変更できます" });
+
+    const panel = await message.channel.send({ embeds: [embed] });
+    panelMessageId = panel.id;
+
+    for (const emoji of Object.keys(ROLE_REACTIONS)) {
+      await panel.react(emoji);
+    }
+
+    await message.delete().catch(() => {});
+    return;
+  }
 
   if (content === "!video") {
     if (!latestVideo) {
@@ -64,6 +104,59 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+// ========== リアクション追加 ==========
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.message.id !== panelMessageId) return;
+
+  const emoji = reaction.emoji.name;
+  const roleId = ROLE_REACTIONS[emoji];
+  if (!roleId) return;
+
+  try {
+    const guild = reaction.message.guild;
+    const member = await guild.members.fetch(user.id);
+    const role = guild.roles.cache.get(roleId);
+    await member.roles.add(roleId);
+
+    await reaction.message.channel.send({
+      content: `✅ <@${user.id}> **${emoji} ${role?.name ?? roleId}** を付与しました！`,
+      flags: MessageFlags.Ephemeral
+    }).then(msg => setTimeout(() => msg.delete().catch(() => {}), 5000));
+
+    console.log(`ロール付与: ${user.tag} → ${emoji} (${roleId})`);
+  } catch (err) {
+    console.error("ロール付与エラー:", err.message);
+  }
+});
+
+// ========== リアクション削除 ==========
+client.on("messageReactionRemove", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.message.id !== panelMessageId) return;
+
+  const emoji = reaction.emoji.name;
+  const roleId = ROLE_REACTIONS[emoji];
+  if (!roleId) return;
+
+  try {
+    const guild = reaction.message.guild;
+    const member = await guild.members.fetch(user.id);
+    const role = guild.roles.cache.get(roleId);
+    await member.roles.remove(roleId);
+
+    await reaction.message.channel.send({
+      content: `🗑️ <@${user.id}> **${emoji} ${role?.name ?? roleId}** を外しました`,
+      flags: MessageFlags.Ephemeral
+    }).then(msg => setTimeout(() => msg.delete().catch(() => {}), 5000));
+
+    console.log(`ロール削除: ${user.tag} → ${emoji} (${roleId})`);
+  } catch (err) {
+    console.error("ロール削除エラー:", err.message);
+  }
+});
+
+// ========== YouTube ==========
 async function checkYoutube() {
   try {
     const res = await fetch(YOUTUBE_RSS_URL);
@@ -101,6 +194,7 @@ async function checkYoutube() {
   }
 }
 
+// ========== Minecraft ==========
 async function checkMinecraft() {
   try {
     const snap = await fetchLatestSnapshot();
@@ -133,13 +227,32 @@ async function fetchLatestSnapshot() {
   if (!snap) return null;
 
   const articleSlug = snap.id.toLowerCase().replace(/\./g, "-");
+  const url = `${MC_ARTICLE_BASE}minecraft-${articleSlug}`;
+  const ogImage = await fetchOgImage(url);
 
   return {
     id: snap.id,
     releaseTime: snap.releaseTime,
-    url: `${MC_ARTICLE_BASE}minecraft-${articleSlug}`,
-    type: detectType(snap.id)
+    url,
+    type: detectType(snap.id),
+    image: ogImage
   };
+}
+
+async function fetchOgImage(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const match = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/);
+    if (!match) {
+      const match2 = html.match(/<meta[^>]*content="([^"]+)"[^>]*property="og:image"/);
+      return match2 ? match2[1] : null;
+    }
+    return match[1];
+  } catch {
+    return null;
+  }
 }
 
 function detectType(id) {
@@ -153,8 +266,9 @@ function detectType(id) {
 async function sendVideo(video) {
   const channel = await client.channels.fetch(CHANNEL_ID);
   if (!channel?.isTextBased()) return;
+
   await channel.send(
-    `📺 新しい動画が投稿されました！\n**${video.title}**\n${video.link}`
+    `<@&1522070132183269467>\n📺 新しい動画が投稿されました！\n**${video.title}**\n${video.link}`
   );
 }
 
@@ -166,11 +280,18 @@ async function sendMinecraftPost(snap) {
     year: "numeric", month: "long", day: "numeric"
   });
 
-  await channel.send(
-    `🧪 新しいMinecraft **${snap.type}** が公開されました！\n` +
-    `**${snap.id}** (${released})\n` +
-    `${snap.url}`
-  );
+  const embed = new EmbedBuilder()
+    .setColor(0x4CAF50)
+    .setTitle(`🧪 新しいMinecraft ${snap.type} が公開されました！`)
+    .setDescription(`**${snap.id}** (${released})`)
+    .setURL(snap.url);
+
+  if (snap.image) embed.setImage(snap.image);
+
+  await channel.send({
+    content: `<@&1522070352841277620>`,
+    embeds: [embed]
+  });
 }
 
 client.login(TOKEN);
