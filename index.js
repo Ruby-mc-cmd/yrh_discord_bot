@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, Partials } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, Partials, AttachmentBuilder } from "discord.js";
 
 const client = new Client({
   intents: [
@@ -93,6 +93,7 @@ client.on("messageCreate", async (message) => {
         await message.reply("Snapshot / Pre-release / Preview が見つかりませんでした");
         return;
       }
+      await message.reply(`画像URL: ${snap.image}`);
       await sendMinecraftPost(snap);
       await message.reply("最新Minecraft記事を送信しました");
     } catch (err) {
@@ -267,10 +268,12 @@ async function sendMinecraftPost(snap) {
 
   if (snap.image) embed.setImage(snap.image);
 
-  await channel.send({
+  const msg = await channel.send({
     content: `<@&1522070352841277620>`,
     embeds: [embed]
   });
+
+  await msg.crosspost().catch(err => console.error("公開エラー:", err.message));
 }
 
 client.login(TOKEN);
