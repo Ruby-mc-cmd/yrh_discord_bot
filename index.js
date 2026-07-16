@@ -93,7 +93,6 @@ client.on("messageCreate", async (message) => {
         await message.reply("Snapshot / Pre-release / Preview が見つかりませんでした");
         return;
       }
-      await message.reply(`画像URL: ${snap.image}`);
       await sendMinecraftPost(snap);
       await message.reply("最新Minecraft記事を送信しました");
     } catch (err) {
