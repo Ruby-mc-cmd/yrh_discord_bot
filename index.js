@@ -15,11 +15,18 @@ const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const MC_CHANNEL_ID = "1519156682209497209";
 const PANEL_CHANNEL_ID = "1522069540308123780";
-const YOUTUBE_GAS_URL = process.env.YOUTUBE_GAS_URL;
 
+const YOUTUBE_RSS_URL =
+  "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
 const MC_VERSION_API =
   "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MC_ARTICLE_BASE = "https://www.minecraft.net/en-us/article/";
+
+const YOUTUBE_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/rss+xml, application/xml, text/xml, */*",
+  "Accept-Language": "ja,en;q=0.9"
+};
 
 const ROLE_REACTIONS = {
   "❤️": "1522070132183269467",
@@ -28,6 +35,7 @@ const ROLE_REACTIONS = {
 
 let lastVideoId = null;
 let latestVideo = null;
+let lastVideoNotifiedAt = null;
 let lastSnapshotId = null;
 let latestSnapshot = null;
 
@@ -35,7 +43,7 @@ client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await checkYoutube();
   await checkMinecraft();
-  setInterval(checkYoutube, 60 * 1000);
+  setInterval(checkYoutube, 5 * 60 * 1000);
   setInterval(checkMinecraft, 60 * 1000);
 });
 
@@ -151,16 +159,23 @@ client.on("messageReactionRemove", async (reaction, user) => {
 // ========== YouTube ==========
 async function checkYoutube() {
   try {
-    const res = await fetch(YOUTUBE_GAS_URL);
+    const res = await fetch(YOUTUBE_RSS_URL, { headers: YOUTUBE_HEADERS });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
+    const text = await res.text();
 
-    if (json.error) throw new Error(json.error);
+    const entryMatch = text.match(/<entry>([\s\S]*?)<\/entry>/);
+    if (!entryMatch) return;
+
+    const entry = entryMatch[1];
+    const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/);
+    const linkMatch = entry.match(/<link rel="alternate"[^>]*href="([^"]+)"/);
+    const idMatch = entry.match(/<yt:videoId>([\s\S]*?)<\/yt:videoId>/);
+    if (!titleMatch || !linkMatch || !idMatch) return;
 
     const video = {
-      title: json.title,
-      link: json.link,
-      id: json.videoId
+      title: titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim(),
+      link: linkMatch[1],
+      id: idMatch[1].trim()
     };
 
     latestVideo = video;
@@ -172,12 +187,19 @@ async function checkYoutube() {
     }
 
     if (video.id !== lastVideoId) {
+      // 最後の通知から1時間以内なら送信しない
+      if (lastVideoNotifiedAt && Date.now() - lastVideoNotifiedAt < 60 * 60 * 1000) {
+        console.log("1時間インターバル中のためスキップ:", video.title);
+        return;
+      }
+
       lastVideoId = video.id;
+      lastVideoNotifiedAt = Date.now();
       await sendVideo(video);
       console.log("新動画通知:", video.title);
     }
   } catch (err) {
-    console.error("YouTube取得エラー:", err.message);
+    console.error("YouTube RSS取得エラー:", err.message);
   }
 }
 
