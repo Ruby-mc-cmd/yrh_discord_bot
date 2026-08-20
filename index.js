@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, Partials, AttachmentBuilder } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, Partials } from "discord.js";
 
 const client = new Client({
   intents: [
@@ -22,12 +22,18 @@ const MC_VERSION_API =
   "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MC_ARTICLE_BASE = "https://www.minecraft.net/en-us/article/";
 
+const YOUTUBE_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/rss+xml, application/xml, text/xml, */*",
+  "Accept-Language": "ja,en;q=0.9"
+};
+
 const ROLE_REACTIONS = {
   "❤️": "1522070132183269467",
   "🔔": "1522070352841277620"
 };
 
-let lastVideoLink = null;
+let lastVideoId = null;
 let latestVideo = null;
 let lastSnapshotId = null;
 let latestSnapshot = null;
@@ -152,7 +158,7 @@ client.on("messageReactionRemove", async (reaction, user) => {
 // ========== YouTube ==========
 async function checkYoutube() {
   try {
-    const res = await fetch(YOUTUBE_RSS_URL);
+    const res = await fetch(YOUTUBE_RSS_URL, { headers: YOUTUBE_HEADERS });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
 
@@ -162,23 +168,25 @@ async function checkYoutube() {
     const entry = entryMatch[1];
     const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/);
     const linkMatch = entry.match(/<link rel="alternate"[^>]*href="([^"]+)"/);
-    if (!titleMatch || !linkMatch) return;
+    const idMatch = entry.match(/<yt:videoId>([\s\S]*?)<\/yt:videoId>/);
+    if (!titleMatch || !linkMatch || !idMatch) return;
 
     const video = {
       title: titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim(),
-      link: linkMatch[1]
+      link: linkMatch[1],
+      id: idMatch[1].trim()
     };
 
     latestVideo = video;
 
-    if (lastVideoLink === null) {
-      lastVideoLink = video.link;
+    if (lastVideoId === null) {
+      lastVideoId = video.id;
       console.log("初回動画保存:", video.title);
       return;
     }
 
-    if (video.link !== lastVideoLink) {
-      lastVideoLink = video.link;
+    if (video.id !== lastVideoId) {
+      lastVideoId = video.id;
       await sendVideo(video);
       console.log("新動画通知:", video.title);
     }
