@@ -15,18 +15,11 @@ const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const MC_CHANNEL_ID = "1519156682209497209";
 const PANEL_CHANNEL_ID = "1522069540308123780";
+const YOUTUBE_GAS_URL = process.env.YOUTUBE_GAS_URL;
 
-const YOUTUBE_RSS_URL =
-  "https://www.youtube.com/feeds/videos.xml?channel_id=UCNfndWRyWneyURFe9_I9jLg";
 const MC_VERSION_API =
   "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MC_ARTICLE_BASE = "https://www.minecraft.net/en-us/article/";
-
-const YOUTUBE_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "application/rss+xml, application/xml, text/xml, */*",
-  "Accept-Language": "ja,en;q=0.9"
-};
 
 const ROLE_REACTIONS = {
   "❤️": "1522070132183269467",
@@ -38,7 +31,7 @@ let latestVideo = null;
 let lastSnapshotId = null;
 let latestSnapshot = null;
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await checkYoutube();
   await checkMinecraft();
@@ -158,23 +151,16 @@ client.on("messageReactionRemove", async (reaction, user) => {
 // ========== YouTube ==========
 async function checkYoutube() {
   try {
-    const res = await fetch(YOUTUBE_RSS_URL, { headers: YOUTUBE_HEADERS });
+    const res = await fetch(YOUTUBE_GAS_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
+    const json = await res.json();
 
-    const entryMatch = text.match(/<entry>([\s\S]*?)<\/entry>/);
-    if (!entryMatch) return;
-
-    const entry = entryMatch[1];
-    const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/);
-    const linkMatch = entry.match(/<link rel="alternate"[^>]*href="([^"]+)"/);
-    const idMatch = entry.match(/<yt:videoId>([\s\S]*?)<\/yt:videoId>/);
-    if (!titleMatch || !linkMatch || !idMatch) return;
+    if (json.error) throw new Error(json.error);
 
     const video = {
-      title: titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim(),
-      link: linkMatch[1],
-      id: idMatch[1].trim()
+      title: json.title,
+      link: json.link,
+      id: json.videoId
     };
 
     latestVideo = video;
@@ -191,7 +177,7 @@ async function checkYoutube() {
       console.log("新動画通知:", video.title);
     }
   } catch (err) {
-    console.error("YouTube RSS取得エラー:", err.message);
+    console.error("YouTube取得エラー:", err.message);
   }
 }
 
